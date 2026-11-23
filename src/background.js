@@ -137,6 +137,14 @@ function htmlToText(html) {
     .replace(/\s+/g, ' ');
 }
 
+// A redirect to another site must pass that site's robots.txt too.
+async function redirectAllowed(origin, res) {
+  const u = new URL(res.url || origin);
+  if (u.origin === origin) return true;
+  if (NO_BACKGROUND_CHECK.test(u.host)) return false;
+  return robotsAllows(await robotsFor(u.origin), u.pathname);
+}
+
 async function storePageCodes(origin, force) {
   const host = hostKey(new URL(origin).host);
   const cache = await get('storeCache', {});
@@ -151,7 +159,7 @@ async function storePageCodes(origin, force) {
     try {
       const res = await politeFetch(origin + path);
       checked++;
-      if (!res.ok) continue;
+      if (!res.ok || !(await redirectAllowed(origin, res))) continue;
       if (!/text\/html/i.test(res.headers.get('content-type') || '')) continue;
       const html = (await res.text()).slice(0, 1500000);
       for (const c of globalThis.DF_extractCodes(htmlToText(html), html)) {
@@ -348,6 +356,7 @@ async function checkAllWatches() {
       if (!robotsAllows(rules, new URL(w.url).pathname)) throw new Error('store does not allow automated checks');
       const res = await politeFetch(w.url);
       if (!res.ok) throw new Error('store returned ' + res.status);
+      if (!(await redirectAllowed(origin, res))) throw new Error('redirected to a site that does not allow automated checks');
       const p = globalThis.DF_productFromHtml((await res.text()).slice(0, 3000000));
       if (!p) throw new Error('no price found on the page');
       await recordPrice({ key: w.key, name: w.name, url: w.url, price: p.price, currency: p.currency || w.currency });
@@ -367,8 +376,8 @@ async function ensureAlarm() {
   if (!(await chrome.alarms.get('droplist'))) chrome.alarms.create('droplist', { periodInMinutes: 360, delayInMinutes: 1 });
 }
 
-chrome.alarms.onAlarm.addListener((a) => {
-  if (a.name === 'droplist') checkAllWatches();
+chrome.alarms.onAlarm.addListener(async (a) => {
+  if (a.name === 'droplist' && !(await get('paused', false))) checkAllWatches();
 });
 chrome.notifications.onClicked.addListener((id) => {
   if (!id.startsWith('watch:')) return;

@@ -110,7 +110,7 @@
   }
 
   function nearbyButton(input) {
-    const BTN = /^(apply|redeem|submit|add|use|go|ok|✓|apply code|apply coupon|apply discount)$/i;
+    const BTN = /^(apply|redeem|add|use|✓|apply code|apply coupon|apply discount)$/i;
     let node = input.parentElement;
     for (let depth = 0; node && depth < 5; depth++, node = node.parentElement) {
       const btns = [...node.querySelectorAll('button,input[type="submit"],[role="button"]')].filter((b) => b !== input);
@@ -187,6 +187,7 @@
     if (!code) return null;
     const hasCode = (el) => {
       for (let n = el, d = 0; n && d < 4; n = n.parentElement, d++) {
+        if (d > 0 && n.matches?.('table,tbody,ul,ol,form,[class*="totals" i]')) break;
         const t = `${n.getAttribute?.('aria-label') || ''} ${n.getAttribute?.('data-coupon') || ''} ${n.innerText || ''}`.toUpperCase();
         if (new RegExp('(^|[^A-Z0-9_-])' + code.replace(/[^A-Z0-9_-]/g, '') + '($|[^A-Z0-9_-])').test(t)) return true;
         if (t.length > 200) break;
@@ -815,6 +816,8 @@
   }
 
   async function boot() {
+    const { paused } = await chrome.storage.local.get('paused');
+    if (paused) return; // paused everywhere: no panel, no price tracking
     trackProduct();
     const pending = await loadRun();
     // resume only on a page that still has a promo box, so a run never continues on the wrong page

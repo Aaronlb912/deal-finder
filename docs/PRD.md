@@ -17,6 +17,7 @@ People who shop online and want the best working coupon at checkout without hand
 - **Cheaper elsewhere.** One-click searches on Google Shopping, Amazon, Walmart, Target and eBay. Nothing is sent until you click.
 - **Savings history.** Total saved and the last checkouts where a code stayed applied.
 - **Your own codes.** Paste a code from an email and it is tried next time at that store.
+- **Data controls.** Pause on all sites (no panel, no tracking, no Droplist checks) and Clear my data with a confirm step.
 
 ## Honey parity
 
@@ -62,5 +63,4 @@ No coupon aggregator sites are scraped. Their terms forbid it. Amazon is never f
 
 - A shared codes list that updates without a release (needs a public repo and review process).
 - Checkout adapters with test fixtures for Amazon, Target, Walmart and other custom checkouts.
-- A "Clear my data" button (removing the extension clears everything today).
 - Firefox and Safari builds. Chrome Web Store listing.

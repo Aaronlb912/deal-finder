@@ -300,3 +300,42 @@ async function render() {
 render().catch((e) => {
   main.replaceChildren(h('p', { class: 'pad err', role: 'alert' }, `Something went wrong: ${e.message}`));
 });
+
+// ---------- data controls ----------
+(async () => {
+  const pauseBtn = document.getElementById('pause');
+  const clearBtn = document.getElementById('clear');
+  const msg = document.getElementById('footMsg');
+  const draw = async () => {
+    const { paused } = await chrome.storage.local.get('paused');
+    pauseBtn.textContent = paused ? 'Resume on all sites' : 'Pause on all sites';
+    pauseBtn.setAttribute('aria-pressed', paused ? 'true' : 'false');
+  };
+  pauseBtn.onclick = async () => {
+    const { paused } = await chrome.storage.local.get('paused');
+    await chrome.storage.local.set({ paused: !paused });
+    msg.textContent = paused ? 'Running again. Reload store tabs to see it.' : 'Paused. No panel, no price tracking, no Droplist checks until you resume.';
+    draw();
+  };
+  let armed = false;
+  clearBtn.onclick = async () => {
+    if (!armed) {
+      armed = true;
+      clearBtn.textContent = 'Click again to clear';
+      msg.textContent = 'This deletes your codes, price history, Droplist and savings from this computer. It cannot be undone.';
+      setTimeout(() => { if (armed) { armed = false; clearBtn.textContent = 'Clear my data'; msg.textContent = ''; } }, 5000);
+      return;
+    }
+    armed = false;
+    try {
+      await chrome.storage.local.clear();
+      clearBtn.textContent = 'Clear my data';
+      msg.textContent = 'All Deal Finder data on this computer is deleted.';
+      draw();
+      render();
+    } catch (e) {
+      msg.textContent = 'Could not clear data: ' + (e.message || e);
+    }
+  };
+  draw();
+})();

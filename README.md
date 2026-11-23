@@ -16,6 +16,7 @@ People who want the coupon-tester part of Honey without the affiliate cookie swa
 - **Amazon sellers.** Cheapest seller on the page, counting shipping and Prime.
 - **Check other stores.** Search links for Google Shopping, Amazon, Walmart, Target and eBay.
 - **Savings history** and **your own codes** in the popup.
+- **Your data, your call.** Pause on all sites, or Clear my data (with a confirm step).
 
 No cash back, by choice: it needs affiliate links, and Deal Finder uses none.
 
@@ -48,4 +49,4 @@ Droplist: a watch on an mvmt.com product with a target above its price fetched t
 - Fewer codes than Honey. No paid code database and no affiliate feed, on purpose.
 - Price history starts on your first visit. No free price-history API covers most stores.
 - Big custom checkouts (Amazon, Walmart, Target) have no checkout adapters yet.
-- No "Clear my data" button, no Firefox build, not on the Chrome Web Store.
+- No Firefox build, not on the Chrome Web Store.
