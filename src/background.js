@@ -28,22 +28,7 @@ const LIST_TTL = 24 * 60 * 60 * 1000;
 const LIST_FAIL_TTL = 60 * 60 * 1000;
 const LIST_MAX_BYTES = 1000000;
 
-// Keep only well-formed entries, so a bad remote file can't inject junk.
-export function cleanList(data) {
-  if (!data || data.version !== 1 || typeof data.stores !== 'object' || Array.isArray(data.stores)) return null;
-  const stores = {};
-  let n = 0;
-  for (const [host, list] of Object.entries(data.stores)) {
-    if (!/^[a-z0-9.-]{3,100}$/.test(host) || !Array.isArray(list)) continue;
-    const ok = list
-      .filter((c) => c && /^[A-Z0-9_-]{4,40}$/.test(String(c.code || '')))
-      .slice(0, 30)
-      .map((c) => ({ code: c.code, note: String(c.note || '').slice(0, 200), checked: String(c.checked || '').slice(0, 10) }));
-    if (ok.length) { stores[host] = ok; n += ok.length; }
-    if (n > 20000) break;
-  }
-  return { version: 1, stores };
-}
+const cleanList = (d) => globalThis.DF_cleanList(d);
 
 let bundled = null;
 async function loadBundled() {

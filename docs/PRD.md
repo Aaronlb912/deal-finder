@@ -62,6 +62,6 @@ No coupon aggregator sites are scraped. Their terms forbid it. Amazon is never f
 
 ## Not built yet
 
-- The public repo that serves the shared list is not created yet. Until it is, the extension uses the bundled list.
+- The daily refresh only reads stores listed in `data/sources.json`. Adding stores is manual.
 - Checkout adapters with test fixtures for Amazon, Target, Walmart and other custom checkouts.
 - Firefox and Safari builds. Chrome Web Store listing.
