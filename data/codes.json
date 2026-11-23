@@ -1,6 +1,7 @@
 {
   "version": 1,
-  "about": "Open codes list. Each code was seen on the store's own site on its checked date. Refreshed daily by scripts/refresh-codes.mjs; codes not seen for 14 days are dropped.",
+  "about": "Open codes list. Each code was seen on the store's own site on its checked date. Refreshed daily by scripts/refresh-codes.mjs; codes a store stops showing are dropped, or after 14 days if its pages fail to load.",
+  "month": "2026-11",
   "stores": {
     "tentree.com": [
       {
@@ -10,11 +11,6 @@
       }
     ],
     "mvmt.com": [
-      {
-        "code": "BF30",
-        "note": "Extra 30% off Black Friday sale. Seen on mvmt.com homepage.",
-        "checked": "2026-11-22"
-      },
       {
         "code": "BOGO_50",
         "note": "OP NOW BOGO: Buy One, Get One 50% Off Sitewide* | Code: BOGO_50 Free Domestic Shipping Over $75 and Free Returns Seen on mvmt.com homepage.",

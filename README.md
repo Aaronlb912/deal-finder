@@ -24,7 +24,7 @@ Codes come from the page you are on, the store's own homepage and promo pages (a
 
 ## How the shared list updates
 
-A GitHub Action (`.github/workflows/refresh-codes.yml`) runs `scripts/refresh-codes.mjs` daily. It reads the homepage and promo pages of each store in `data/sources.json`, only where that store's robots.txt allows, one request every 2 seconds. Codes not seen for 14 days are dropped. It commits only when the list changed and passed the same checks the extension uses. To add a store, add its domain to `data/sources.json` after checking its terms allow it.
+A GitHub Action (`.github/workflows/refresh-codes.yml`) runs `scripts/refresh-codes.mjs` daily. It reads the homepage and promo pages of each store in `data/sources.json`, only where that store's robots.txt allows, one request every 2 seconds. A code the store no longer shows is dropped the same day. If the store's pages fail to load, its codes are kept for up to 14 days. It commits only when the list changed and passed the same checks the extension uses. To add a store, add its domain to `data/sources.json` after checking its terms allow it.
 
 ## Install (Load unpacked)
 

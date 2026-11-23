@@ -80,23 +80,28 @@ async function codesFor(host) {
   const rules = await robotsRules(origin);
   if (!rules) return { error: 'robots.txt unreachable, skipped' };
   const found = new Map();
+  let pages = 0;
   for (const p of PATHS) {
     if (!allowed(rules, p)) continue;
     await sleep(2000);
     try {
       const res = await get(origin + p);
       if (!res.ok || !/text\/html/i.test(res.headers.get('content-type') || '')) continue;
-      if (new URL(res.url).hostname.replace(/^www\./, '') !== host) continue; // redirected off the store
+      const final = new URL(res.url);
+      if (final.hostname.replace(/^www\./, '') !== host) continue; // redirected off the store
+      if (!allowed(rules, final.pathname + final.search)) continue; // redirected somewhere robots.txt disallows
+      pages++;
       const html = (await res.text()).slice(0, 1500000);
       for (const c of DF_extractCodes(htmlToText(html), html)) if (!found.has(c.code)) found.set(c.code, { ...c, where: p });
     } catch {}
   }
-  return { codes: [...found.values()] };
+  return { codes: [...found.values()], pages };
 }
 
 const old = JSON.parse(fs.readFileSync(LIST, 'utf8'));
 const { stores: hosts } = JSON.parse(fs.readFileSync(SOURCES, 'utf8'));
-const next = { version: 1, about: old.about, stores: {} };
+// month changes monthly, so the repo gets a commit and GitHub keeps the schedule enabled
+const next = { version: 1, about: old.about, month: today.slice(0, 7), stores: {} };
 const log = [];
 
 for (const host of hosts) {
@@ -105,12 +110,17 @@ for (const host of hosts) {
   const byCode = new Map(prev.map((c) => [c.code, c]));
   if (r.codes) {
     for (const c of r.codes) {
+      // same rule as DF_cleanList, per code, so one odd code can't stop the whole refresh
+      if (!/^[A-Z0-9_-]{4,40}$/.test(c.code)) { log.push(`${host}: skipped ${JSON.stringify(c.code)}`); continue; }
       const where = c.where === '/' ? 'homepage' : c.where;
-      byCode.set(c.code, { code: c.code, note: `${(c.context || '').replace(/\s+/g, ' ').trim().slice(0, 140)} Seen on ${host} ${where}.`.trim(), checked: today });
+      byCode.set(c.code, { code: c.code, note: `${(c.context || '').replace(/\s+/g, ' ').trim().slice(0, 140)} Seen on ${host} ${where}.`.trim().slice(0, 200), checked: today });
     }
   }
-  // keep a code only while the store still shows it (or for KEEP_DAYS after, in case a page was briefly down)
-  const keep = [...byCode.values()].filter((c) => (Date.parse(today) - Date.parse(c.checked || '1970-01-01')) / 86400000 <= KEEP_DAYS);
+  // pages loaded: keep only codes seen today. Pages failed: keep old codes for KEEP_DAYS.
+  const fresh = r.pages > 0;
+  const keep = [...byCode.values()]
+    .filter((c) => (fresh ? c.checked === today : (Date.parse(today) - Date.parse(c.checked || '1970-01-01')) / 86400000 <= KEEP_DAYS))
+    .slice(0, 30);
   if (keep.length) next.stores[host] = keep;
   log.push(`${host}: ${r.error || `${r.codes.length} seen`}, ${keep.length} kept`);
 }
@@ -122,7 +132,7 @@ if (!clean || total !== Object.values(next.stores).flat().length) {
   console.error('validation failed, not writing');
   process.exit(1);
 }
-const out = JSON.stringify(next, null, 2) + '\n';
+const out = JSON.stringify({ version: 1, about: next.about, month: next.month, stores: clean.stores }, null, 2) + '\n';
 if (out === fs.readFileSync(LIST, 'utf8')) {
   console.log('no change');
 } else {
