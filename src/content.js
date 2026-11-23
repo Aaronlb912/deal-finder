@@ -6,6 +6,17 @@
   const RUN_KEY = 'run:' + HOST;
   const RUN_STALE_MS = 3 * 60 * 1000;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // Set by the phone bookmark build; the extension never defines it.
+  const PHONE = typeof DF_PHONE !== 'undefined';
+  // Phone bookmark tapped again: bring the card back. Returns false when this page has no promo box.
+  window.__dealFinderShow = () => {
+    if (panel) return true;
+    if (!looksLikeCheckout()) return false;
+    dismissed = false;
+    lookedUp = false;
+    onCheckoutFound();
+    return true;
+  };
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   function send(msg) {
@@ -104,11 +115,12 @@
     const els = document.querySelectorAll('button,a,summary,[role="button"],[aria-expanded]');
     for (const el of els) {
       const t = (el.textContent || '').trim();
-      if (t.length < 60 && /(have a|add|enter|apply|use).{0,20}(promo|coupon|discount|voucher)( ?code)?\b|gift card or discount code/i.test(t) && visible(el)) return el;
+      if (t.length < 60 && /\b(have a|add|enter|apply|use)\b.{0,20}\b(promo|coupon|discount|voucher)\b( ?code)?|gift card or discount code/i.test(t) && visible(el)) return el;
     }
     // Phone-width checkouts fold the promo box into a collapsed order summary.
     if (findCouponInput(true)) {
       for (const el of document.querySelectorAll('button[aria-expanded="false"],summary,[role="button"][aria-expanded="false"]')) {
+        if (el.tagName === 'SUMMARY' && el.parentElement?.open) continue;
         if (/order summary/i.test(el.textContent || '') && visible(el)) return el;
       }
     }
@@ -364,8 +376,8 @@
       el('div', { class: 'title' }, 'Deal Finder'),
       el('button', {
         class: 'x',
-        'aria-label': running ? 'Stop' : 'Hide on this store for a week',
-        title: running ? 'Stop' : 'Hide on this store for a week',
+        'aria-label': running ? 'Stop' : PHONE ? 'Close' : 'Hide on this store for a week',
+        title: running ? 'Stop' : PHONE ? 'Close' : 'Hide on this store for a week',
         onclick: () => {
           if (running) { stopRequested = true; return; }
           dismissed = true;
@@ -397,7 +409,7 @@
       if (!codes.length) {
         body.append(
           el('p', { class: 'lead' }, view.loading ? 'Looking for codes…' : 'No codes found for this store yet.'),
-          view.loading ? null : el('p', { class: 'muted' }, 'Got one by email? Open Deal Finder from the toolbar and add it. It will be tried here.')
+          view.loading ? null : el('p', { class: 'muted' }, PHONE ? 'Got one by email? Type it in the store\'s promo box.' : 'Got one by email? Open Deal Finder from the toolbar and add it. It will be tried here.')
         );
       } else {
         const n = Math.min(codes.length, MAX_CODES);
@@ -407,7 +419,7 @@
           el('p', { class: 'muted', style: 'margin:8px 0 0' }, codes.length > MAX_CODES ? `Tries the ${MAX_CODES} most likely first. The best one stays applied.` : 'Tried one at a time. The best one stays applied.')
         );
       }
-      for (const e of storeErrors.slice(0, 1)) body.append(el('p', { class: 'muted' }, `Store lookup: ${e}`));
+      for (const e of storeErrors.slice(0, 2)) body.append(el('p', { class: 'muted' }, /^[A-Z]/.test(e) ? e : `Store lookup: ${e}`));
       announce(view.loading ? 'Looking for codes' : `${codes.length} codes found`);
     } else if (view.kind === 'running') {
       const pct = Math.round((view.i / view.n) * 100);
@@ -415,6 +427,7 @@
         el('p', { class: 'lead' }, `Trying ${view.code} (${view.i + 1} of ${view.n})`),
         el('div', { class: 'bar', role: 'progressbar', 'aria-label': 'Codes tried', 'aria-valuenow': String(pct), 'aria-valuemin': '0', 'aria-valuemax': '100' }, el('i', { style: `width:${pct}%` })),
         el('ul', {}, view.results.map(resultRow)),
+        PHONE ? el('p', { class: 'muted' }, 'If the page reloads, tap Deal Finder again to continue.') : null,
         el('button', { class: 'btn ghost', onclick: (e) => { stopRequested = true; e.currentTarget.textContent = 'Stopping…'; } }, 'Stop')
       );
       announce(`Trying code ${view.i + 1} of ${view.n}`);
@@ -813,7 +826,9 @@
   async function onCheckoutFound() {
     if (lookedUp) return;
     lookedUp = true;
+    window.__dealFinderFound = true;
     await loadDismissed();
+    if (!running) render({ kind: 'ready', loading: true });
     // local codes show at once; store-page codes join when that slower lookup finishes
     await lookup(false, true);
     if (!running) render({ kind: 'ready', loading: true });
@@ -832,9 +847,11 @@
     if (paused) return; // paused everywhere: no panel, no price tracking
     trackProduct();
     const pending = await loadRun();
+    if (pending && pending.phase !== 'done') window.__dealFinderFound = true; // a resume can take longer than the phone's 4s notice
     // resume only on a page that still has a promo box, so a run never continues on the wrong page
     if (pending && pending.phase !== 'done' && (await waitFor(() => findCouponInput(true) || findCouponToggle(), 6000))) {
       lookedUp = true;
+      window.__dealFinderFound = true;
       await waitFor(() => readTotal(), 6000);
       if (pending.phase === 'applying') {
         await applyBest(pending);
@@ -843,7 +860,7 @@
       }
       return;
     }
-    if (pending) await clearRun();
+    if (pending) { window.__dealFinderFound = false; await clearRun(); }
     if (looksLikeCheckout()) return onCheckoutFound();
     // single-page checkouts render late: watch for a promo box for up to 30s
     const started = Date.now();

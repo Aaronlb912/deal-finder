@@ -1,10 +1,27 @@
+const DF_PHONE = true;
+const chrome =
 // Stand-in for the extension's background worker, so content.js can run from a bookmark on a phone.
 // Everything stays in this store's localStorage. The only requests are to this store and the shared list.
+// The build assigns the returned object to a local `chrome`, so the store's own window.chrome is untouched.
 (() => {
+  let shown = false;
+  const notice = (force) => {
+    if ((window.__dealFinderFound || shown) && !force) return;
+    shown = true;
+    const n = document.createElement('div');
+    n.setAttribute('role', 'status');
+    n.textContent = 'Deal Finder: no promo code box on this page yet. Open your cart or checkout and tap the bookmark again.';
+    n.style.cssText = 'position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));z-index:2147483647;background:#14532d;color:#fff;font:15px/1.4 system-ui,sans-serif;padding:14px 16px;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,.25)';
+    n.onclick = () => n.remove();
+    document.documentElement.append(n);
+    setTimeout(() => n.remove(), 7000);
+  };
+  // Tapped again on the same page: bring the card back (content.js stops itself on a second run).
   if (window.__dealFinder) {
-    const old = document.getElementById('deal-finder-root');
-    if (old) { old.style.display = ''; return; }
+    if (!window.__dealFinderShow?.()) notice(true);
+    return null;
   }
+
   const P = 'dealfinder:';
   const read = (k, d) => { try { const v = JSON.parse(localStorage.getItem(P + k)); return v ?? d; } catch { return d; } };
   const write = (k, v) => { try { localStorage.setItem(P + k, JSON.stringify(v)); } catch { /* storage full or blocked */ } };
@@ -12,49 +29,68 @@
   const LIST_URL = 'https://raw.githubusercontent.com/Aaronlb912/deal-finder/main/data/codes.json';
   const PATHS = ['/', '/pages/promotions', '/promotions', '/offers'];
   const SKIP = /(^|\.)(amazon|walmart|target)\.[a-z.]+$/;
+  const timeout = () => (AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined);
 
+  // Keeps only this store's codes, so the store's own storage doesn't fill up as the list grows.
+  let listFailed = false;
   async function sharedList() {
     const c = read('list', null);
-    if (c && Date.now() - c.at < (c.failed ? 3600000 : 86400000)) return c.data;
+    if (c && Date.now() - c.at < (c.failed ? 3600000 : 86400000)) { listFailed = !!c.failed; return c.codes; }
     try {
-      const res = await fetch(LIST_URL, { credentials: 'omit', referrerPolicy: 'no-referrer' });
+      const res = await fetch(LIST_URL, { credentials: 'omit', referrerPolicy: 'no-referrer', signal: timeout() });
       if (!res.ok) throw new Error();
       const data = globalThis.DF_cleanList(JSON.parse((await res.text()).slice(0, 1000000)));
       if (!data) throw new Error();
-      write('list', { at: Date.now(), data });
-      return data;
+      const codes = data.stores?.[host] || [];
+      write('list', { at: Date.now(), codes });
+      listFailed = false;
+      return codes;
     } catch {
-      write('list', { at: Date.now(), failed: true, data: c?.data || null });
-      return c?.data || null; // keep the last good copy
+      write('list', { at: Date.now(), failed: true, codes: c?.codes || [] });
+      listFailed = true;
+      return c?.codes || []; // keep the last good copy
     }
   }
 
-  // Simple robots.txt check for the * group: longest matching rule wins.
-  async function robotsRules() {
-    try {
-      const res = await fetch('/robots.txt', { credentials: 'omit' });
-      if (res.status === 404) return [];
-      if (!res.ok) return null;
-      const rules = [];
-      let mine = false;
-      for (const raw of (await res.text()).split(/\r?\n/)) {
-        const m = raw.replace(/#.*/, '').trim().match(/^([a-z-]+)\s*:\s*(.*)$/i);
-        if (!m) continue;
-        const f = m[1].toLowerCase();
-        if (f === 'user-agent') mine = m[2].trim() === '*';
-        else if (mine && (f === 'allow' || f === 'disallow') && m[2].trim()) rules.push({ allow: f === 'allow', path: m[2].trim() });
+  // Same robots.txt rules as src/background.js (parseRobots, robotsAllows).
+  function parseRobots(txt) {
+    const groups = [];
+    let cur = null;
+    let lastWasAgent = false;
+    for (const raw of txt.split(/\r?\n/)) {
+      const m = raw.replace(/#.*/, '').trim().match(/^([A-Za-z-]+)\s*:\s*(.*)$/);
+      if (!m) continue;
+      const field = m[1].toLowerCase();
+      const val = m[2].trim();
+      if (field === 'user-agent') {
+        if (!lastWasAgent) groups.push((cur = { agents: [], rules: [] }));
+        cur.agents.push(val.toLowerCase());
+        lastWasAgent = true;
+      } else {
+        lastWasAgent = false;
+        if (cur && (field === 'allow' || field === 'disallow')) cur.rules.push({ allow: field === 'allow', path: val });
       }
-      return rules;
-    } catch { return null; }
+    }
+    const mine = groups.find((g) => g.agents.includes('dealfinder'));
+    return mine ? mine.rules : groups.filter((g) => g.agents.includes('*')).flatMap((g) => g.rules);
   }
-  const allowed = (rules, p) => {
+  function robotsAllows(rules, path) {
     let best = null;
     for (const r of rules) {
+      if (!r.path) continue;
       const re = new RegExp('^' + r.path.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\\\$$/, '$'));
-      if (re.test(p) && (!best || r.path.length > best.path.length)) best = r;
+      if (re.test(path) && (!best || r.path.length > best.path.length || (r.path.length === best.path.length && r.allow))) best = r;
     }
     return !best || best.allow;
-  };
+  }
+  async function robotsRules() {
+    try {
+      const res = await fetch('/robots.txt', { credentials: 'omit', signal: timeout() });
+      if (res.status === 404 || res.status === 410) return [];
+      if (!res.ok) return null;
+      return parseRobots(await res.text());
+    } catch { return null; }
+  }
 
   async function storeCodes() {
     const hit = read('store:' + host, null);
@@ -62,19 +98,23 @@
     const rules = await robotsRules();
     if (!rules) return { codes: [], errors: ["couldn't read this store's robots.txt"] };
     const found = new Map();
+    let loaded = 0;
     for (const p of PATHS) {
-      if (!allowed(rules, p)) continue;
+      if (!robotsAllows(rules, p)) continue;
       try {
-        const res = await fetch(p, { credentials: 'omit' });
-        if (!res.ok || new URL(res.url).origin !== location.origin || !/text\/html/i.test(res.headers.get('content-type') || '')) continue;
+        const res = await fetch(p, { credentials: 'omit', signal: timeout() });
+        const url = new URL(res.url);
+        // a redirect can land on a path robots.txt disallows
+        if (!res.ok || url.origin !== location.origin || !robotsAllows(rules, url.pathname) || !/text\/html/i.test(res.headers.get('content-type') || '')) continue;
         const html = (await res.text()).slice(0, 1500000);
+        loaded++;
         const doc = new DOMParser().parseFromString(html, 'text/html');
         doc.querySelectorAll('script,style').forEach((n) => n.remove());
         for (const c of globalThis.DF_extractCodes(doc.body?.textContent || '', html)) if (!found.has(c.code)) found.set(c.code, c);
       } catch { /* one page failing is fine */ }
     }
     const out = { at: Date.now(), codes: [...found.values()], errors: [] };
-    write('store:' + host, out);
+    if (loaded) write('store:' + host, out); // don't remember "no codes" when nothing loaded
     return out;
   }
 
@@ -89,12 +129,11 @@
     };
     for (const w of read('wins', [])) add(w.code, 'worked before');
     for (const c of pageCodes) add(c.code, 'this page', c.context);
-    const list = await sharedList();
-    for (const c of list?.stores?.[host] || []) add(c.code, 'open list', c.note, c.checked);
-    let storeErrors = [];
+    for (const c of await sharedList()) add(c.code, 'open list', c.note, c.checked);
+    let storeErrors = listFailed ? ["Couldn't load the shared code list."] : [];
     if (!skipStore && !SKIP.test(host)) {
       const r = await storeCodes();
-      storeErrors = r.errors;
+      storeErrors = storeErrors.concat(r.errors);
       for (const c of r.codes) add(c.code, 'store site', c.context);
     }
     const hist = read('history', {});
@@ -116,8 +155,14 @@
     if (run.best && run.best.saved > 0) write('wins', [{ code: run.best.code, saved: run.best.saved, at: Date.now() }, ...read('wins', []).filter((w) => w.code !== run.best.code)].slice(0, 10));
   }
 
+  // Tapped somewhere with no promo box: say so instead of doing nothing.
+  // content.js sets __dealFinderFound as soon as it sees a checkout, before any slow lookup.
+  // Checked again after content.js gives up waiting on a pending run (6s).
+  setTimeout(notice, 4000);
+  setTimeout(notice, 6500);
+
   const handlers = { collectCodes, saveRun, recordPrice: () => null };
-  globalThis.chrome = {
+  return {
     runtime: {
       lastError: null,
       sendMessage(msg, cb) {
@@ -129,18 +174,6 @@
     },
     storage: { local: { get: async () => ({}), set: async () => {} } }
   };
-
-  // Tapped somewhere with no promo box: say so instead of doing nothing.
-  setTimeout(() => {
-    if (document.getElementById('deal-finder-root')) return;
-    const n = document.createElement('div');
-    n.setAttribute('role', 'status');
-    n.textContent = 'Deal Finder: no promo code box on this page yet. Open your cart or checkout and tap the bookmark again.';
-    n.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:2147483647;background:#14532d;color:#fff;font:15px/1.4 system-ui,sans-serif;padding:14px 16px;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,.25)';
-    n.onclick = () => n.remove();
-    document.documentElement.append(n);
-    setTimeout(() => n.remove(), 7000);
-  }, 4000);
 })();
 
 ;
@@ -289,6 +322,17 @@ globalThis.DF_cleanList = DF_cleanList;
   const RUN_KEY = 'run:' + HOST;
   const RUN_STALE_MS = 3 * 60 * 1000;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // Set by the phone bookmark build; the extension never defines it.
+  const PHONE = typeof DF_PHONE !== 'undefined';
+  // Phone bookmark tapped again: bring the card back. Returns false when this page has no promo box.
+  window.__dealFinderShow = () => {
+    if (panel) return true;
+    if (!looksLikeCheckout()) return false;
+    dismissed = false;
+    lookedUp = false;
+    onCheckoutFound();
+    return true;
+  };
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   function send(msg) {
@@ -387,11 +431,12 @@ globalThis.DF_cleanList = DF_cleanList;
     const els = document.querySelectorAll('button,a,summary,[role="button"],[aria-expanded]');
     for (const el of els) {
       const t = (el.textContent || '').trim();
-      if (t.length < 60 && /(have a|add|enter|apply|use).{0,20}(promo|coupon|discount|voucher)( ?code)?\b|gift card or discount code/i.test(t) && visible(el)) return el;
+      if (t.length < 60 && /\b(have a|add|enter|apply|use)\b.{0,20}\b(promo|coupon|discount|voucher)\b( ?code)?|gift card or discount code/i.test(t) && visible(el)) return el;
     }
     // Phone-width checkouts fold the promo box into a collapsed order summary.
     if (findCouponInput(true)) {
       for (const el of document.querySelectorAll('button[aria-expanded="false"],summary,[role="button"][aria-expanded="false"]')) {
+        if (el.tagName === 'SUMMARY' && el.parentElement?.open) continue;
         if (/order summary/i.test(el.textContent || '') && visible(el)) return el;
       }
     }
@@ -647,8 +692,8 @@ globalThis.DF_cleanList = DF_cleanList;
       el('div', { class: 'title' }, 'Deal Finder'),
       el('button', {
         class: 'x',
-        'aria-label': running ? 'Stop' : 'Hide on this store for a week',
-        title: running ? 'Stop' : 'Hide on this store for a week',
+        'aria-label': running ? 'Stop' : PHONE ? 'Close' : 'Hide on this store for a week',
+        title: running ? 'Stop' : PHONE ? 'Close' : 'Hide on this store for a week',
         onclick: () => {
           if (running) { stopRequested = true; return; }
           dismissed = true;
@@ -680,7 +725,7 @@ globalThis.DF_cleanList = DF_cleanList;
       if (!codes.length) {
         body.append(
           el('p', { class: 'lead' }, view.loading ? 'Looking for codes…' : 'No codes found for this store yet.'),
-          view.loading ? null : el('p', { class: 'muted' }, 'Got one by email? Open Deal Finder from the toolbar and add it. It will be tried here.')
+          view.loading ? null : el('p', { class: 'muted' }, PHONE ? 'Got one by email? Type it in the store\'s promo box.' : 'Got one by email? Open Deal Finder from the toolbar and add it. It will be tried here.')
         );
       } else {
         const n = Math.min(codes.length, MAX_CODES);
@@ -690,7 +735,7 @@ globalThis.DF_cleanList = DF_cleanList;
           el('p', { class: 'muted', style: 'margin:8px 0 0' }, codes.length > MAX_CODES ? `Tries the ${MAX_CODES} most likely first. The best one stays applied.` : 'Tried one at a time. The best one stays applied.')
         );
       }
-      for (const e of storeErrors.slice(0, 1)) body.append(el('p', { class: 'muted' }, `Store lookup: ${e}`));
+      for (const e of storeErrors.slice(0, 2)) body.append(el('p', { class: 'muted' }, /^[A-Z]/.test(e) ? e : `Store lookup: ${e}`));
       announce(view.loading ? 'Looking for codes' : `${codes.length} codes found`);
     } else if (view.kind === 'running') {
       const pct = Math.round((view.i / view.n) * 100);
@@ -698,6 +743,7 @@ globalThis.DF_cleanList = DF_cleanList;
         el('p', { class: 'lead' }, `Trying ${view.code} (${view.i + 1} of ${view.n})`),
         el('div', { class: 'bar', role: 'progressbar', 'aria-label': 'Codes tried', 'aria-valuenow': String(pct), 'aria-valuemin': '0', 'aria-valuemax': '100' }, el('i', { style: `width:${pct}%` })),
         el('ul', {}, view.results.map(resultRow)),
+        PHONE ? el('p', { class: 'muted' }, 'If the page reloads, tap Deal Finder again to continue.') : null,
         el('button', { class: 'btn ghost', onclick: (e) => { stopRequested = true; e.currentTarget.textContent = 'Stopping…'; } }, 'Stop')
       );
       announce(`Trying code ${view.i + 1} of ${view.n}`);
@@ -1096,7 +1142,9 @@ globalThis.DF_cleanList = DF_cleanList;
   async function onCheckoutFound() {
     if (lookedUp) return;
     lookedUp = true;
+    window.__dealFinderFound = true;
     await loadDismissed();
+    if (!running) render({ kind: 'ready', loading: true });
     // local codes show at once; store-page codes join when that slower lookup finishes
     await lookup(false, true);
     if (!running) render({ kind: 'ready', loading: true });
@@ -1115,9 +1163,11 @@ globalThis.DF_cleanList = DF_cleanList;
     if (paused) return; // paused everywhere: no panel, no price tracking
     trackProduct();
     const pending = await loadRun();
+    if (pending && pending.phase !== 'done') window.__dealFinderFound = true; // a resume can take longer than the phone's 4s notice
     // resume only on a page that still has a promo box, so a run never continues on the wrong page
     if (pending && pending.phase !== 'done' && (await waitFor(() => findCouponInput(true) || findCouponToggle(), 6000))) {
       lookedUp = true;
+      window.__dealFinderFound = true;
       await waitFor(() => readTotal(), 6000);
       if (pending.phase === 'applying') {
         await applyBest(pending);
@@ -1126,7 +1176,7 @@ globalThis.DF_cleanList = DF_cleanList;
       }
       return;
     }
-    if (pending) await clearRun();
+    if (pending) { window.__dealFinderFound = false; await clearRun(); }
     if (looksLikeCheckout()) return onCheckoutFound();
     // single-page checkouts render late: watch for a promo box for up to 30s
     const started = Date.now();
