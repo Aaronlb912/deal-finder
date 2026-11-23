@@ -95,7 +95,10 @@ async function codesFor(host) {
       if (final.hostname.replace(/^www\./, '') !== host) continue; // redirected off the store
       if (!allowed(rules, final.pathname + final.search)) continue; // redirected somewhere robots.txt disallows
       const html = (await res.text()).slice(0, 1500000);
-      if (html.length < 5000 || /cf-chl|captcha|Access Denied/i.test(html.slice(0, 20000))) continue; // bot wall, not a real page
+      if (html.length < 5000 || /cf-chl|cf_chl_opt|<title>\s*(Just a moment|Attention Required|Access Denied)/i.test(html.slice(0, 20000))) {
+        console.log(`${host}${p}: bot wall, ignored`); // so "0 seen" can be told apart from a block
+        continue;
+      }
       loaded.add(p);
       for (const c of DF_extractCodes(htmlToText(html), html)) if (!found.has(c.code)) found.set(c.code, { ...c, where: p });
     } catch {}
