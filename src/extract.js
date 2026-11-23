@@ -112,6 +112,10 @@ globalThis.DF_num = DF_num;
   globalThis.DF_looksLikeCode = looksLikeCode;
 })();
 
+// The one code rule for the shared list, used here and by scripts/refresh-codes.mjs.
+const DF_validCode = (code) => /^[A-Z0-9_-]{4,40}$/.test(String(code || ''));
+globalThis.DF_validCode = DF_validCode;
+
 // Keep only well-formed entries, so a bad remote file can't inject junk.
 function DF_cleanList(data) {
   if (!data || data.version !== 1 || typeof data.stores !== 'object' || Array.isArray(data.stores)) return null;
@@ -120,7 +124,7 @@ function DF_cleanList(data) {
   for (const [host, list] of Object.entries(data.stores)) {
     if (!/^[a-z0-9.-]{3,100}$/.test(host) || !Array.isArray(list)) continue;
     const ok = list
-      .filter((c) => c && /^[A-Z0-9_-]{4,40}$/.test(String(c.code || '')))
+      .filter((c) => c && DF_validCode(c.code))
       .slice(0, 30)
       .map((c) => ({ code: c.code, note: String(c.note || '').slice(0, 200), checked: String(c.checked || '').slice(0, 10) }));
     if (ok.length) { stores[host] = ok; n += ok.length; }

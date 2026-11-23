@@ -15,7 +15,7 @@ const KEEP_DAYS = 14; // a code not seen on the store's site for this long is dr
 const today = new Date().toISOString().slice(0, 10);
 
 await import(path.join(ROOT, 'src/extract.js').replace(/\\/g, '/').replace(/^([A-Za-z]):/, 'file:///$1:'));
-const { DF_extractCodes, DF_cleanList } = globalThis;
+const { DF_extractCodes, DF_cleanList, DF_validCode } = globalThis;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -55,11 +55,15 @@ async function robotsRules(origin) {
       lastAgent = true;
     } else {
       lastAgent = false;
+      if (cur && field === 'crawl-delay') cur.delay = Math.min(60, parseFloat(val) || 0);
       if (cur && (field === 'allow' || field === 'disallow') && (val || field === 'allow')) cur.rules.push({ allow: field === 'allow', path: val });
     }
   }
   const mine = groups.find((g) => g.agents.includes('dealfinder'));
-  return (mine ? [mine] : groups.filter((g) => g.agents.includes('*'))).flatMap((g) => g.rules);
+  const use = mine ? [mine] : groups.filter((g) => g.agents.includes('*'));
+  const rules = use.flatMap((g) => g.rules);
+  rules.delay = Math.max(0, ...use.map((g) => g.delay || 0));
+  return rules;
 }
 
 function allowed(rules, p) {
@@ -80,22 +84,23 @@ async function codesFor(host) {
   const rules = await robotsRules(origin);
   if (!rules) return { error: 'robots.txt unreachable, skipped' };
   const found = new Map();
-  let pages = 0;
+  const loaded = new Set(); // paths that returned a real page this run
   for (const p of PATHS) {
     if (!allowed(rules, p)) continue;
-    await sleep(2000);
+    await sleep(Math.max(2000, rules.delay * 1000));
     try {
       const res = await get(origin + p);
       if (!res.ok || !/text\/html/i.test(res.headers.get('content-type') || '')) continue;
       const final = new URL(res.url);
       if (final.hostname.replace(/^www\./, '') !== host) continue; // redirected off the store
       if (!allowed(rules, final.pathname + final.search)) continue; // redirected somewhere robots.txt disallows
-      pages++;
       const html = (await res.text()).slice(0, 1500000);
+      if (html.length < 5000 || /cf-chl|captcha|Access Denied/i.test(html.slice(0, 20000))) continue; // bot wall, not a real page
+      loaded.add(p);
       for (const c of DF_extractCodes(htmlToText(html), html)) if (!found.has(c.code)) found.set(c.code, { ...c, where: p });
     } catch {}
   }
-  return { codes: [...found.values()], pages };
+  return { codes: [...found.values()], loaded };
 }
 
 const old = JSON.parse(fs.readFileSync(LIST, 'utf8'));
@@ -111,15 +116,16 @@ for (const host of hosts) {
   if (r.codes) {
     for (const c of r.codes) {
       // same rule as DF_cleanList, per code, so one odd code can't stop the whole refresh
-      if (!/^[A-Z0-9_-]{4,40}$/.test(c.code)) { log.push(`${host}: skipped ${JSON.stringify(c.code)}`); continue; }
+      if (!DF_validCode(c.code)) { log.push(`${host}: skipped ${JSON.stringify(c.code)}`); continue; }
       const where = c.where === '/' ? 'homepage' : c.where;
-      byCode.set(c.code, { code: c.code, note: `${(c.context || '').replace(/\s+/g, ' ').trim().slice(0, 140)} Seen on ${host} ${where}.`.trim().slice(0, 200), checked: today });
+      const tail = `Seen on ${host} ${where}.`; // kept whole: the next run reads the page back from it
+      byCode.set(c.code, { code: c.code, note: `${(c.context || '').replace(/\s+/g, ' ').trim().slice(0, 199 - tail.length)} ${tail}`.trim(), checked: today });
     }
   }
-  // pages loaded: keep only codes seen today. Pages failed: keep old codes for KEEP_DAYS.
-  const fresh = r.pages > 0;
+  // A code whose page loaded today but no longer shows it is dropped. If its page failed, keep it for KEEP_DAYS.
+  const pageOf = (c) => { const w = (c.note.match(/Seen on \S+ (\S+)\.$/) || [])[1]; return w === 'homepage' ? '/' : w; };
   const keep = [...byCode.values()]
-    .filter((c) => (fresh ? c.checked === today : (Date.parse(today) - Date.parse(c.checked || '1970-01-01')) / 86400000 <= KEEP_DAYS))
+    .filter((c) => c.checked === today || (!r.loaded?.has(pageOf(c)) && (Date.parse(today) - Date.parse(c.checked || '1970-01-01')) / 86400000 <= KEEP_DAYS))
     .slice(0, 30);
   if (keep.length) next.stores[host] = keep;
   log.push(`${host}: ${r.error || `${r.codes.length} seen`}, ${keep.length} kept`);
