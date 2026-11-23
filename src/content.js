@@ -474,7 +474,10 @@
       const input = await revealInput();
       if (!input) throw new Error("Couldn't find the promo code box on this page.");
       // a code we are about to try is already applied: take it off so every code is measured from the same total
+      // a code only on the shared list was never shown to the shopper, so it can't be theirs to clear
+      const own = new Set(codes.filter((c) => !(c.sources.length === 1 && c.sources[0] === 'open list')).map((c) => c.code));
       for (const c of run.codes) {
+        if (!own.has(c)) continue;
         const stale = findRemoveButton(c);
         if (!stale) continue;
         const before = readTotal();

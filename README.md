@@ -20,7 +20,7 @@ People who want the coupon-tester part of Honey without the affiliate cookie swa
 
 No cash back, by choice: it needs affiliate links, and Deal Finder uses none.
 
-Codes come from the page you are on, the store's own homepage and promo pages (after checking its `robots.txt`, cached 12 hours, at most one request every 2 seconds), your own codes, codes that worked for you before, and the open list in `data/codes.json`. Full rules: [docs/PRD.md](docs/PRD.md).
+Codes come from the page you are on, the store's own homepage and promo pages (after checking its `robots.txt`, cached 12 hours, at most one request every 2 seconds), your own codes, codes that worked for you before, and the open list in `data/codes.json` (bundled, plus a daily fetch of the same static file from the public repo, with no cookies or personal data; GitHub sees the IP address like any download). Full rules: [docs/PRD.md](docs/PRD.md).
 
 ## Install (Load unpacked)
 
@@ -49,4 +49,5 @@ Droplist: a watch on an mvmt.com product with a target above its price fetched t
 - Fewer codes than Honey. No paid code database and no affiliate feed, on purpose.
 - Price history starts on your first visit. No free price-history API covers most stores.
 - Big custom checkouts (Amazon, Walmart, Target) have no checkout adapters yet.
+- The public repo for the shared codes list is not up yet, so only the bundled list is used.
 - No Firefox build, not on the Chrome Web Store.

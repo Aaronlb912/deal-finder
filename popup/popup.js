@@ -88,8 +88,8 @@ function compareLinks(p) {
   return h('div', { class: 'links' }, sites.map(([name, url]) => h('a', { href: url, target: '_blank', rel: 'noopener noreferrer' }, name)));
 }
 
-function histText(hst) {
-  if (!hst) return 'not tried yet';
+function histText(hst, checked) {
+  if (!hst) return checked ? `not tried yet, list checked ${checked}` : 'not tried yet';
   const base = `worked ${hst.wins} of ${hst.tries}`;
   return hst.lastWorked ? `${base}, last ${ago(hst.lastWorked)}` : base;
 }
@@ -123,7 +123,12 @@ async function globalSections(currentKey) {
         h('a', { href: w.url, target: '_blank', rel: 'noopener noreferrer', class: 'clip', style: w.key === currentKey ? 'font-weight:600' : '' }, w.name || w.url),
         h('span', { class: 'chip' },
           h('span', { class: hit ? 'good' : 'src' }, `${w.lastPrice ? money(w.lastPrice, sym) : '?'} / ${money(w.target, sym)}`),
-          h('button', { 'aria-label': 'Stop watching ' + (w.name || ''), onclick: async () => { await bg({ type: 'removeWatch', key: w.key }); render(); } }, '×')));
+          h('button', { 'data-key': w.key, 'aria-label': 'Stop watching ' + (w.name || ''), onclick: async () => {
+            const r = await bg({ type: 'removeWatch', key: w.key });
+            if (!r.ok) return showUndo(null, r.error || 'Could not remove it. Try again.');
+            await render();
+            if (r.data) showUndo(r.data); // already gone elsewhere: nothing to undo
+          } }, '×')));
     })));
     drop.append(h('p', { class: 'muted', style: 'margin:6px 0 0' }, 'Now / target. Checked every 6 hours where the store allows it, and whenever you visit. Amazon items update only when you visit.'));
   }
@@ -192,7 +197,7 @@ async function render() {
     coupon.append(h('p', { class: 'muted', style: 'margin:0' }, 'No promo code box on this page. Codes are tried on the cart or checkout page.'));
   }
   if (info.codes.length) {
-    coupon.append(h('ul', { style: 'margin-top:10px' }, info.codes.map((c) => h('li', { title: c.context || '' }, h('code', {}, c.code), h('span', { class: 'src' }, c.sources.join(', '), h('br'), h('span', { class: c.hist && c.hist.wins ? 'good' : '' }, histText(c.hist)))))));
+    coupon.append(h('ul', { style: 'margin-top:10px' }, info.codes.map((c) => h('li', { title: c.context || '' }, h('code', {}, c.code), h('span', { class: 'src' }, c.sources.join(', '), h('br'), h('span', { class: c.hist && c.hist.wins ? 'good' : '' }, histText(c.hist, c.checked)))))));
   }
   for (const e of (info.storeErrors || []).slice(0, 1)) coupon.append(h('p', { class: 'muted', style: 'margin:8px 0 0' }, `Store lookup: ${e}`));
   coupon.append(status);
@@ -328,6 +333,8 @@ render().catch((e) => {
     }
     armed = false;
     try {
+      document.getElementById('undo')?.remove();
+      clearTimeout(undoTimer);
       await chrome.storage.local.clear();
       clearBtn.textContent = 'Clear my data';
       msg.textContent = 'All Deal Finder data on this computer is deleted.';
@@ -339,3 +346,44 @@ render().catch((e) => {
   };
   draw();
 })();
+
+// ---------- undo for Droplist removal ----------
+let undoTimer = null;
+function showUndo(watch, error) {
+  document.getElementById('undo')?.remove();
+  clearTimeout(undoTimer);
+  const bar = h('div', { id: 'undo', class: 'undo', role: 'status' });
+  if (error) bar.append(h('span', { class: 'bad' }, error));
+  else {
+    bar.append(h('span', { class: 'clip' }, 'Removed ' + (watch?.name || 'item')),
+      h('button', { class: 'linkbtn', 'aria-label': 'Undo removing ' + (watch?.name || 'item'), onclick: async () => {
+        clearTimeout(undoTimer);
+        const r = await bg({ type: 'restoreWatch', watch });
+        bar.remove();
+        await render();
+        if (!r.ok) return showUndo(null, r.error || 'Could not restore it.');
+        // put focus back on the restored row's remove button
+        const back = [...document.querySelectorAll('button[data-key]')].find((b) => b.dataset.key === watch.key);
+        back?.focus();
+      } }, 'Undo'));
+  }
+  document.body.append(bar);
+  bar.querySelector('button')?.focus();
+  // the timer pauses while the bar has focus or the pointer, and focus goes somewhere sensible when it closes
+  const close = () => {
+    const hadFocus = bar.contains(document.activeElement);
+    bar.remove();
+    if (hadFocus) {
+      const head = [...document.querySelectorAll('h2')].find((x) => x.textContent.startsWith('Droplist'));
+      if (head) { head.tabIndex = -1; head.focus(); }
+    }
+  };
+  const arm = () => { clearTimeout(undoTimer); undoTimer = setTimeout(close, 8000); };
+  const hold = () => clearTimeout(undoTimer);
+  bar.addEventListener('focusin', hold);
+  bar.addEventListener('mouseenter', hold);
+  bar.addEventListener('focusout', (e) => { if (!bar.contains(e.relatedTarget)) arm(); });
+  bar.addEventListener('mouseleave', () => { if (!bar.contains(document.activeElement)) arm(); });
+  if (!bar.contains(document.activeElement)) arm();
+  bar.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+}

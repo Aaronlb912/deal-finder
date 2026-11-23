@@ -21,16 +21,76 @@ async function set(key, value) {
   await chrome.storage.local.set({ [key]: value });
 }
 
+// The open list also lives in the public repo so it can update without a release.
+// A plain GET of one static file: no query string, no cookies or referrer. GitHub sees the IP address like any download.
+const LIST_URL = 'https://raw.githubusercontent.com/Aaronlb912/deal-finder/main/data/codes.json';
+const LIST_TTL = 24 * 60 * 60 * 1000;
+const LIST_FAIL_TTL = 60 * 60 * 1000;
+const LIST_MAX_BYTES = 1000000;
+
+// Keep only well-formed entries, so a bad remote file can't inject junk.
+export function cleanList(data) {
+  if (!data || data.version !== 1 || typeof data.stores !== 'object' || Array.isArray(data.stores)) return null;
+  const stores = {};
+  let n = 0;
+  for (const [host, list] of Object.entries(data.stores)) {
+    if (!/^[a-z0-9.-]{3,100}$/.test(host) || !Array.isArray(list)) continue;
+    const ok = list
+      .filter((c) => c && /^[A-Z0-9_-]{4,40}$/.test(String(c.code || '')))
+      .slice(0, 30)
+      .map((c) => ({ code: c.code, note: String(c.note || '').slice(0, 200), checked: String(c.checked || '').slice(0, 10) }));
+    if (ok.length) { stores[host] = ok; n += ok.length; }
+    if (n > 20000) break;
+  }
+  return { version: 1, stores };
+}
+
 let bundled = null;
-async function bundledCodes(host) {
+async function loadBundled() {
   if (!bundled) {
     try {
-      bundled = await (await fetch(chrome.runtime.getURL('data/codes.json'))).json();
+      bundled = cleanList(await (await fetch(chrome.runtime.getURL('data/codes.json'))).json()) || { stores: {} };
     } catch {
       bundled = { stores: {} };
     }
   }
-  return bundled.stores?.[host] || [];
+  return bundled;
+}
+
+let remoteLoad = null;
+async function remoteList() {
+  const cached = await get('remoteList', null);
+  if (cached && Date.now() - cached.at < (cached.failed ? LIST_FAIL_TTL : LIST_TTL)) return cached.data;
+  if (!remoteLoad) {
+    remoteLoad = (async () => {
+      let data = null;
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 8000);
+        const res = await fetch(LIST_URL, { credentials: 'omit', cache: 'no-cache', referrerPolicy: 'no-referrer', signal: ctrl.signal }).finally(() => clearTimeout(timer));
+        if (res.ok) {
+          const text = await res.text();
+          if (text.length <= LIST_MAX_BYTES) data = cleanList(JSON.parse(text));
+        }
+      } catch {}
+      // on failure keep the last good copy and try again in an hour
+      await set('remoteList', data ? { at: Date.now(), data } : { at: Date.now(), failed: true, data: cached?.data || null });
+      return data || cached?.data || null;
+    })().finally(() => (remoteLoad = null));
+  }
+  return remoteLoad;
+}
+
+async function bundledCodes(host, cachedOnly) {
+  const local = (await loadBundled()).stores[host] || [];
+  let remote = [];
+  try {
+    // the quick first pass must not wait on the network
+    const list = cachedOnly ? (await get('remoteList', null))?.data : await remoteList();
+    remote = list?.stores?.[host] || [];
+  } catch {}
+  const seen = new Set();
+  return [...remote, ...local].filter((c) => !seen.has(c.code) && seen.add(c.code));
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -185,20 +245,21 @@ const NO_BACKGROUND_CHECK = /(^|\.)(amazon|walmart|target)\.[a-z.]+$/;
 async function collectCodes({ origin, pageCodes = [], force = false, skipStore = false }) {
   const host = hostKey(new URL(origin).host);
   const out = new Map();
-  const add = (code, source, context) => {
+  const add = (code, source, context, checked) => {
     code = String(code).trim().toUpperCase();
     if (!code || code.length > 40) return;
     const existing = out.get(code);
     if (existing) {
       if (!existing.sources.includes(source)) existing.sources.push(source);
-    } else out.set(code, { code, sources: [source], context: context || '' });
+    } else out.set(code, { code, sources: [source], context: context || '', checked: checked || '' });
+    if (checked && existing && !existing.checked) existing.checked = checked;
   };
   const wins = (await get('wins', {}))[host] || [];
   const user = (await get('userCodes', {}))[host] || [];
   for (const w of wins) add(w.code, 'worked before');
   for (const c of user) add(c, 'added by you');
   for (const c of pageCodes) add(c.code, 'this page', c.context);
-  for (const c of await bundledCodes(host)) add(c.code, 'open list', c.note);
+  for (const c of await bundledCodes(host, skipStore)) add(c.code, 'open list', c.note, c.checked);
   let storeErrors = [];
   if (NO_BACKGROUND_CHECK.test(host)) skipStore = true;
   if (!skipStore) try {
@@ -211,7 +272,8 @@ async function collectCodes({ origin, pageCodes = [], force = false, skipStore =
   const hist = (await get('codeHistory', {}))[host] || {};
   const codes = [...out.values()].map((c) => ({ ...c, hist: hist[c.code] || null }));
   // codes with a track record of working go first, so the best one is usually found early
-  const score = (c) => (c.hist ? c.hist.wins * 10 - (c.hist.tries - c.hist.wins) + (c.hist.lastWorked ? 1 : 0) : 0);
+  const stale = (c) => c.sources.length === 1 && c.sources[0] === 'open list' && c.checked && Date.now() - Date.parse(c.checked) > 30 * 86400000;
+  const score = (c) => (c.hist ? c.hist.wins * 10 - (c.hist.tries - c.hist.wins) + (c.hist.lastWorked ? 1 : 0) : 0) - (stale(c) ? 5 : 0);
   codes.sort((a, b) => score(b) - score(a));
   return { host, codes, storeErrors };
 }
@@ -315,7 +377,18 @@ async function addWatch({ key, url, name, target, currency, price }) {
 
 async function removeWatch({ key }) {
   const watches = await get('watches', {});
+  const removed = watches[key] || null;
   delete watches[key];
+  await set('watches', watches);
+  return removed;
+}
+
+// Undo: put back exactly what was removed, still capped at 100.
+async function restoreWatch({ watch }) {
+  if (!watch || typeof watch.key !== 'string' || !(Number(watch.target) > 0)) throw new Error('Nothing to restore.');
+  const watches = await get('watches', {});
+  if (!watches[watch.key] && Object.keys(watches).length >= 100) throw new Error('Droplist is full (100 items).');
+  watches[watch.key] = watch;
   await set('watches', watches);
   return true;
 }
@@ -390,7 +463,7 @@ chrome.notifications.onClicked.addListener((id) => {
 chrome.runtime.onInstalled.addListener(ensureAlarm);
 chrome.runtime.onStartup.addListener(ensureAlarm);
 
-const handlers = { collectCodes, saveRun, addUserCode, removeUserCode, recordPrice, addWatch, removeWatch, checkAllWatches: () => checkAllWatches().then(() => true) };
+const handlers = { collectCodes, saveRun, addUserCode, removeUserCode, recordPrice, addWatch, removeWatch, restoreWatch, checkAllWatches: () => checkAllWatches().then(() => true) };
 
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   const fn = handlers[msg?.type];

@@ -17,6 +17,7 @@ People who shop online and want the best working coupon at checkout without hand
 - **Cheaper elsewhere.** One-click searches on Google Shopping, Amazon, Walmart, Target and eBay. Nothing is sent until you click.
 - **Savings history.** Total saved and the last checkouts where a code stayed applied.
 - **Your own codes.** Paste a code from an email and it is tried next time at that store.
+- **Undo.** Removing a Droplist item shows an Undo bar for 8 seconds.
 - **Data controls.** Pause on all sites (no panel, no tracking, no Droplist checks) and Clear my data with a confirm step.
 
 ## Honey parity
@@ -39,7 +40,7 @@ Only public sources that are allowed to be read:
 1. **The page you are on.** Codes the store prints in banners and popups ("use code SAVE15").
 2. **The store's own pages.** Its homepage and `/pages/promotions`, `/promotions`, `/offers`. Fetched only after checking that store's `robots.txt`, cached 12 hours, at most one request every 2 seconds per site and 40 per hour in total. Requests carry no cookies.
 3. **Your codes and past wins.** Stored in Chrome on your machine.
-4. **The open codes list** in `data/codes.json`, shipped with the extension. Only codes checked against the store's own site go in.
+4. **The open codes list** in `data/codes.json`. A copy ships with the extension. Once a day it also fetches the same file from the public repo (`raw.githubusercontent.com/Aaronlb912/deal-finder/main/data/codes.json`), so new codes arrive without a release. That request is a plain GET of one static file: no cookies, no referrer, no query string. GitHub sees the request's IP address and browser type, like any download. Nothing else is sent. Malformed entries are dropped. If the fetch fails, the last good copy and the bundled list are used. Only codes checked against the store's own site go in.
 
 No coupon aggregator sites are scraped. Their terms forbid it. Amazon is never fetched in the background; its terms forbid automated access, so Amazon data comes only from pages you open.
 
@@ -49,7 +50,7 @@ No coupon aggregator sites are scraped. Their terms forbid it. Amazon is never f
 | --- | --- |
 | No affiliate links, no cookie swapping, no taking over creators' referral links | No affiliate program, no redirects, no rewriting of links or cookies. The code has no affiliate IDs. |
 | Never hide better codes | There are no partners. Codes are ranked by your own results; the best measured saving is applied. |
-| Collect no browsing data | No analytics, no account, no server. Everything lives in `chrome.storage.local`. Network requests go only to stores: the one you are on, and the product pages on your Droplist. |
+| Collect no browsing data | No analytics, no account, no server. Everything lives in `chrome.storage.local`. Network requests go to stores (the one you are on, and the product pages on your Droplist) and to one static codes file, once a day. |
 | Show what each code saved | Every tested code lists its measured change to the order total. |
 
 ## Limits and honesty
@@ -61,6 +62,6 @@ No coupon aggregator sites are scraped. Their terms forbid it. Amazon is never f
 
 ## Not built yet
 
-- A shared codes list that updates without a release (needs a public repo and review process).
+- The public repo that serves the shared list is not created yet. Until it is, the extension uses the bundled list.
 - Checkout adapters with test fixtures for Amazon, Target, Walmart and other custom checkouts.
 - Firefox and Safari builds. Chrome Web Store listing.
