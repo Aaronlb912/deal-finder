@@ -104,7 +104,13 @@
     const els = document.querySelectorAll('button,a,summary,[role="button"],[aria-expanded]');
     for (const el of els) {
       const t = (el.textContent || '').trim();
-      if (t.length < 60 && /(have a|add|enter|apply|use).{0,20}(promo|coupon|discount|voucher) ?code|gift card or discount code/i.test(t) && visible(el)) return el;
+      if (t.length < 60 && /(have a|add|enter|apply|use).{0,20}(promo|coupon|discount|voucher)( ?code)?\b|gift card or discount code/i.test(t) && visible(el)) return el;
+    }
+    // Phone-width checkouts fold the promo box into a collapsed order summary.
+    if (findCouponInput(true)) {
+      for (const el of document.querySelectorAll('button[aria-expanded="false"],summary,[role="button"][aria-expanded="false"]')) {
+        if (/order summary/i.test(el.textContent || '') && visible(el)) return el;
+      }
     }
     return null;
   }
@@ -301,6 +307,7 @@
       border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.18); overflow: hidden; }
     .card { --bg:#fff; --fg:#1b1d21; --muted:#5f6670; --line:#e3e5e8; --accent:#0f7a4a; --accent-fg:#fff; --bad:#b42318; --soft:#f3f6f4; }
     @media (prefers-color-scheme: dark) { .card { --bg:#1d2024; --fg:#eef0f2; --muted:#a3aab3; --line:#353a40; --accent:#3ccf8e; --accent-fg:#0b1f15; --bad:#ff8a80; --soft:#262a2f; } }
+    @media (max-width: 480px) { .card { left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); width: auto; max-width: none; } }
     .head { display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--line); }
     .logo { width:18px; height:18px; border-radius:5px; background:var(--accent); color:var(--accent-fg); font-weight:700; font-size:12px; display:grid; place-items:center; }
     .title { font-weight:600; flex:1; }
@@ -438,8 +445,10 @@
   async function revealInput() {
     let input = findCouponInput(false);
     if (input) return input;
-    const toggle = findCouponToggle();
-    if (toggle) {
+    // up to two clicks: open the order summary, then "Add discount" inside it
+    for (let i = 0; i < 2 && !input; i++) {
+      const toggle = findCouponToggle();
+      if (!toggle) break;
       toggle.click();
       input = await waitFor(() => findCouponInput(false), 3000);
     }

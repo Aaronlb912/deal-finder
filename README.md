@@ -37,6 +37,12 @@ A GitHub Action (`.github/workflows/refresh-codes.yml`) runs `scripts/refresh-co
 
 To update after pulling changes, click the reload arrow on the Deal Finder card in `chrome://extensions`.
 
+## On iPhone (Safari bookmark)
+
+Open https://aaronlb912.github.io/deal-finder/ on your phone and follow the three steps. The bookmark runs the same checkout code as the extension, on the page you tap it on. It finds codes on the checkout page, the store's own promo pages and the shared list, tries each one, and keeps the best. History stays in that store's storage on your phone. No price alerts on the phone, and a checkout that blocks bookmarks won't show the card.
+
+After changing `src/content.js` or `src/extract.js`, rebuild it with `node scripts/build-bookmark.mjs`.
+
 ## Tested
 
 On 2026-11-22 and 23 in Edge with the extension loaded unpacked, on real Shopify checkouts, with no orders placed:
@@ -45,6 +51,8 @@ On 2026-11-22 and 23 in Edge with the extension loaded unpacked, on real Shopify
 | --- | --- | --- | --- |
 | tentree.com | GREEN15 (homepage banner) | Removed the GREEN15 already applied, then measured it: saved $61.95 on $413.00, left applied | `docs/screenshots/tentree.com-3-result.png` |
 | mvmt.com | BF30, BOGO_50 (homepage banner) | Day 1: BF30 saved $241.92 and was kept. Day 2: the store ended BF30 ("Enter a valid discount code"), so BOGO_50 was applied, saving $144.00 on $720.00 | `docs/screenshots/mvmt.com-3-result.png` |
+
+iPhone bookmark, on 2026-11-23 in WebKit at iPhone 13 size: on tentree it opened the folded order summary, found GREEN15 and kept it applied (saved $12.39 on $82.60). On mvmt, BOGO_50 was tried and correctly reported as not lowering a one-watch cart. Screenshots: `docs/screenshots/phone-*.png`.
 
 Droplist: a watch on an mvmt.com product with a target above its price fetched the live price ($134.40) and fired the notification. Popup: `docs/screenshots/popup-product-page.png`, `docs/screenshots/popup-droplist.png`.
 
