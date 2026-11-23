@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "about": "Open codes list. Each code here was seen on the store's own site and checked on its checkout. Add the date you checked it.",
+  "stores": {
+    "tentree.com": [
+      {
+        "code": "GREEN15",
+        "note": "Extra 15% off sale items. Seen on tentree.com homepage.",
+        "checked": "2026-11-22"
+      }
+    ],
+    "mvmt.com": [
+      {
+        "code": "BF30",
+        "note": "Extra 30% off Black Friday sale. Seen on mvmt.com homepage.",
+        "checked": "2026-11-22"
+      }
+    ]
+  }
+}
