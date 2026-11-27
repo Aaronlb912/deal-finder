@@ -7,14 +7,21 @@
       {
         "code": "GREEN15",
         "note": "% Off Take an extra 15% off our Deepest Discounts with code GREEN15 for savings of 30–60%. Ends Monday at midnight. * Seen on tentree.com homepage.",
-        "checked": "2026-11-26"
+        "checked": "2026-11-27"
       }
     ],
     "mvmt.com": [
       {
         "code": "BOGO_50",
-        "note": "Needed BOGO: Buy One, Get One 50% Off Sitewide* | Code: BOGO_50 Free Domestic Shipping Over $75 and Free Returns Seen on mvmt.com homepage.",
-        "checked": "2026-11-26"
+        "note": "evious BOGO: Buy One, Get One 50% Off Sitewide* | Code: BOGO_50 Free Domestic Shipping Over $75 and Free Returns Seen on mvmt.com homepage.",
+        "checked": "2026-11-27"
+      }
+    ],
+    "allbirds.com": [
+      {
+        "code": "FLOCKFRIDAY",
+        "note": "Shoes & Apparel Black Friday Sale | Extra 10% off with code FLOCKFRIDAY - Shop Men Shop Women Skip to Content BLACK FRID Seen on allbirds.com homepage.",
+        "checked": "2026-11-27"
       }
     ]
   }
